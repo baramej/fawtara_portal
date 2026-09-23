@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Submenu under Fawtara root (defined in fawtara_admin) -->
+    <menuitem id="menu_fawtara_portal"
+              name="Submit Invoices"
+              parent="fawtara_admin.menu_fawtara_root"
+              sequence="30"/>
+
+
+    <!-- Dashboard first -->
+    <menuitem id="menu_client_dashboard"
+              name="My Dashboard"
+              parent="menu_fawtara_portal"
+              action="action_client_dashboard"
+              sequence="1"/>
+
+    <menuitem id="menu_portal_new_invoice"
+              name="New Invoice"
+              parent="menu_fawtara_portal"
+              action="action_portal_invoice_new"
+              sequence="10"/>
+
+    <menuitem id="menu_portal_my_invoices"
+              name="My Invoices"
+              parent="menu_fawtara_portal"
+              action="action_portal_invoices"
+              sequence="20"/>
+
+    <menuitem id="menu_portal_excel_upload"
+              name="Bulk Upload (Excel)"
+              parent="menu_fawtara_portal"
+              action="action_excel_upload"
+              sequence="30"/>
+    <menuitem id="menu_portal_template_download"
+              name="Download Excel Template"
+              parent="menu_fawtara_portal"
+              sequence="40"
+              action="action_excel_upload"/>
+
+</odoo>

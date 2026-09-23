@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_portal_invoice_admin,portal.invoice admin,model_fawtara_portal_invoice,base.group_system,1,1,1,1
+access_portal_invoice_user,portal.invoice user,model_fawtara_portal_invoice,base.group_user,1,1,1,0
+access_portal_invoice_line_admin,portal.invoice.line admin,model_fawtara_portal_invoice_line,base.group_system,1,1,1,1
+access_portal_invoice_line_user,portal.invoice.line user,model_fawtara_portal_invoice_line,base.group_user,1,1,1,0
+access_excel_upload_admin,excel.upload admin,model_fawtara_excel_upload,base.group_system,1,1,1,1
+access_excel_upload_user,excel.upload user,model_fawtara_excel_upload,base.group_user,1,1,1,1
+access_client_dashboard_admin,fawtara.client.dashboard admin,model_fawtara_client_dashboard,base.group_system,1,1,1,1
+access_client_dashboard_user,fawtara.client.dashboard user,model_fawtara_client_dashboard,base.group_user,1,1,1,0
