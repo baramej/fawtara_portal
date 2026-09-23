@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Client company users. Gives the "Fawtara" portal app only —
+         never the "Fawtara Admin" back office. -->
+    <record id="group_fawtara_client" model="res.groups">
+        <field name="name">Client User</field>
+        <field name="sequence">10</field>
+        <field name="privilege_id" ref="fawtara_admin.res_groups_privilege_fawtara"/>
+        <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        <field name="comment">Client company user: submit invoices and see only their own company's invoices.</field>
+    </record>
+
+    <!-- Baramej admins can also open the client portal (e.g. for support) -->
+    <record id="fawtara_admin.group_fawtara_admin" model="res.groups">
+        <field name="implied_ids" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <!-- ── Client rules: scoped to the companies the user is working in ──
+         company_ids = companies currently selected in the company switcher,
+         so a user with access to several client companies still only sees
+         what belongs to the ones they have active. -->
+    <record id="rule_client_own_fawtara_client" model="ir.rule">
+        <field name="name">Fawtara client: own company only</field>
+        <field name="model_id" ref="fawtara_admin.model_fawtara_client"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_fawtara_invoice" model="ir.rule">
+        <field name="name">Fawtara invoice: own company only</field>
+        <field name="model_id" ref="fawtara_admin.model_fawtara_invoice"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_fawtara_invoice_line" model="ir.rule">
+        <field name="name">Fawtara invoice line: own company only</field>
+        <field name="model_id" ref="fawtara_admin.model_fawtara_invoice_line"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_subscription" model="ir.rule">
+        <field name="name">Fawtara subscription: own company only</field>
+        <field name="model_id" ref="fawtara_admin.model_fawtara_client_subscription"/>
+        <field name="domain_force">[('client_id.company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_portal_invoice" model="ir.rule">
+        <field name="name">Portal submission: own company only</field>
+        <field name="model_id" ref="model_fawtara_portal_invoice"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_portal_invoice_line" model="ir.rule">
+        <field name="name">Portal submission line: own company only</field>
+        <field name="model_id" ref="model_fawtara_portal_invoice_line"/>
+        <field name="domain_force">[('invoice_id.company_id', 'in', company_ids)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <record id="rule_client_own_dashboard" model="ir.rule">
+        <field name="name">Client dashboard: own record only</field>
+        <field name="model_id" ref="model_fawtara_client_dashboard"/>
+        <field name="domain_force">[('create_uid', '=', user.id)]</field>
+        <field name="groups" eval="[(4, ref('group_fawtara_client'))]"/>
+    </record>
+
+    <!-- ── Admin: everything (OR-ed with the client rules above) ─────── -->
+    <record id="rule_admin_all_portal_invoice" model="ir.rule">
+        <field name="name">Portal submission: ASP admin — all</field>
+        <field name="model_id" ref="model_fawtara_portal_invoice"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('fawtara_admin.group_fawtara_admin'))]"/>
+    </record>
+
+    <record id="rule_admin_all_portal_invoice_line" model="ir.rule">
+        <field name="name">Portal submission line: ASP admin — all</field>
+        <field name="model_id" ref="model_fawtara_portal_invoice_line"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('fawtara_admin.group_fawtara_admin'))]"/>
+    </record>
+
+</odoo>

@@ -48,10 +48,9 @@ class FawtaraClientDashboard(models.Model):
 
     def _get_client(self):
         """Get client record for the current user's context."""
-        if self.client_id:
-            return self.client_id
-        return self.env['fawtara.client'].sudo().search(
-            [('status', '=', 'ACTIVE')], limit=1)
+        # Never trust a client_id stored on the (user-writable) dashboard
+        # record — always derive it from the company the user works in.
+        return self.env['fawtara.client']._get_current_client()
 
     def _date_domain(self, field='created_at'):
         domain = []
@@ -94,17 +93,16 @@ class FawtaraClientDashboard(models.Model):
             domain = rec._date_domain('created_at')
             if not domain:
                 domain = [('created_at', '>=', month_start)]
-            domain += [('client_id', '=', client.client_id)]
+            domain += [('fawtara_client_id', '=', client.id)]
 
             total = inv.search_count(domain)
             cleared = inv.search(
                 domain + [('status', '=', 'CLEARED')])
             failed = inv.search_count(
-                domain + [('status', 'in',
-                           ['FAILED', 'VALIDATION_FAILED', 'REJECTED'])])
+                domain + [('status_group', '=', 'failed')])
             queued = inv.search_count([
-                ('client_id', '=', client.client_id),
-                ('status', 'in', ['QUEUED', 'PROCESSING']),
+                ('fawtara_client_id', '=', client.id),
+                ('status_group', 'in', ['queued', 'processing']),
             ])
 
             rec.invoices_this_month = total
@@ -161,7 +159,7 @@ class FawtaraClientDashboard(models.Model):
 
         for rec in self:
             client = rec._get_client()
-            cid = client.client_id if client else None
+            cid = client.id if client else None
 
             # Invoices by day (last 30 days)
             day_data = []
@@ -170,7 +168,7 @@ class FawtaraClientDashboard(models.Model):
                 d_start = datetime.combine(d, datetime.min.time())
                 d_end = datetime.combine(d, datetime.max.time())
                 count = inv.search_count([
-                    ('client_id', '=', cid),
+                    ('fawtara_client_id', '=', cid),
                     ('created_at', '>=', d_start),
                     ('created_at', '<=', d_end),
                 ]) if cid else 0
@@ -192,7 +190,7 @@ class FawtaraClientDashboard(models.Model):
             type_data = []
             for code, label in type_map.items():
                 count = inv.search_count([
-                    ('client_id', '=', cid),
+                    ('fawtara_client_id', '=', cid),
                     ('created_at', '>=', month_start),
                     ('invoice_type_code', '=', code),
                 ]) if cid else 0
@@ -203,17 +201,16 @@ class FawtaraClientDashboard(models.Model):
             trend = []
             for start, end, label in rec._month_range(6):
                 cleared = inv.search_count([
-                    ('client_id', '=', cid),
+                    ('fawtara_client_id', '=', cid),
                     ('created_at', '>=', start),
                     ('created_at', '<=', end),
                     ('status', '=', 'CLEARED'),
                 ]) if cid else 0
                 failed = inv.search_count([
-                    ('client_id', '=', cid),
+                    ('fawtara_client_id', '=', cid),
                     ('created_at', '>=', start),
                     ('created_at', '<=', end),
-                    ('status', 'in', [
-                        'FAILED', 'VALIDATION_FAILED', 'REJECTED']),
+                    ('status_group', '=', 'failed'),
                 ]) if cid else 0
                 trend.append({
                     'month': label,
@@ -224,7 +221,7 @@ class FawtaraClientDashboard(models.Model):
 
             # Recent invoices (last 10)
             recent = inv.search([
-                ('client_id', '=', cid),
+                ('fawtara_client_id', '=', cid),
             ], order='created_at desc', limit=10) if cid else inv.browse()
             recent_list = []
             for r in recent:

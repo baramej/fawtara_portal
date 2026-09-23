@@ -274,10 +274,12 @@ class FawtaraClientDashboard extends Component {
     }
 
     openInvoices(domain = []) {
+        // fawtara.invoice = every invoice of this company, whatever the
+        // channel (API, portal form, Excel). Record rules scope it.
         this.action.doAction({
             type: "ir.actions.act_window",
-            name: "My Invoices",
-            res_model: "fawtara.portal.invoice",
+            name: "Invoices",
+            res_model: "fawtara.invoice",
             views: [[false, "list"], [false, "form"]],
             domain,
         });
@@ -301,7 +303,8 @@ class FawtaraClientDashboard extends Component {
             QUEUED: "#f59e0b",
             PROCESSING: "#3b82f6",
         };
-        return map[status] || "#94a3b8";
+        if (map[status]) return map[status];
+        return status ? "#ef4444" : "#94a3b8";   // any other status is a failure
     }
 
     fmt(val) {

@@ -284,6 +284,53 @@ class ExcelTemplateController(http.Controller):
                 ('Cache-Control', 'no-cache'),
             ])
 
+    # ── Secure document proxy ─────────────────────────────────────
+    # Looks the invoice up WITHOUT sudo so record rules apply: a client user
+    # can only download documents of their own company's invoices (before,
+    # any logged-in user could fetch any client's PDF/QR by UUID).
+    @staticmethod
+    def _resolve_target(invoice_uuid):
+        inv = request.env['fawtara.invoice'].search(
+            [('invoice_uuid', '=', invoice_uuid)], limit=1)
+        if not inv:
+            return None, None, None
+        config = request.env['ir.config_parameter'].sudo()
+        client = inv.sudo().fawtara_client_id
+        if inv.environment == 'SANDBOX':
+            base_url = config.get_param('fawtara.sandbox_url', 'http://localhost:8081')
+            api_key = (client.sandbox_api_key
+                       or config.get_param('fawtara.sandbox_admin_api_key'))
+        else:
+            base_url = config.get_param('fawtara.api_url', 'http://localhost:8081')
+            api_key = (client.production_api_key
+                       or config.get_param('fawtara.admin_api_key'))
+        return inv, base_url, api_key
+
+    def _proxy(self, invoice_uuid, kind, content_type, filename):
+        inv, base_url, api_key = self._resolve_target(invoice_uuid)
+        if not inv:
+            return Response("Invoice not found", status=404)
+        try:
+            import requests as req_lib
+            resp = req_lib.get(
+                f"{base_url}/api/v1/invoice/{invoice_uuid}/{kind}",
+                headers={'X-API-Key': api_key},
+                timeout=30)
+            if resp.status_code == 200:
+                return request.make_response(
+                    resp.content,
+                    headers=[
+                        ('Content-Type', content_type),
+                        ('Content-Disposition',
+                         f'attachment; filename="{filename(inv)}"'),
+                    ])
+            return Response(
+                f"{kind.upper()} not available yet. Status: {resp.status_code}",
+                status=404)
+        except Exception as e:  # noqa: BLE001
+            _logger.warning('Fawtara %s proxy failed for %s: %s', kind, invoice_uuid, e)
+            return Response("Fawtara API unreachable", status=502)
+
     @http.route(
         '/fawtara/invoice/<string:invoice_uuid>/qr',
         type='http',
@@ -291,42 +338,8 @@ class ExcelTemplateController(http.Controller):
         methods=['GET'])
     def download_qr(self, invoice_uuid, **kwargs):
         """Proxy QR download from Spring Boot."""
-        config = request.env['ir.config_parameter'].sudo()
-
-        # Find the invoice to get the right API key
-        inv = request.env['fawtara.portal.invoice'].sudo().search(
-            [('invoice_uuid', '=', invoice_uuid)], limit=1)
-
-        if not inv:
-            return Response("Invoice not found", status=404)
-
-        if inv.environment == 'SANDBOX':
-            base_url = config.get_param(
-                'fawtara.sandbox_url', 'http://localhost:8081')
-            api_key = inv.client_id.sandbox_api_key
-        else:
-            base_url = config.get_param(
-                'fawtara.api_url', 'http://localhost:8081')
-            api_key = inv.client_id.production_api_key
-
-        try:
-            import requests as req_lib
-            resp = req_lib.get(
-                f"{base_url}/api/v1/invoice/{invoice_uuid}/qr",
-                headers={'X-API-Key': api_key},
-                timeout=15)
-
-            if resp.status_code == 200:
-                return request.make_response(
-                    resp.content,
-                    headers=[
-                        ('Content-Type', 'image/png'),
-                        ('Content-Disposition',
-                         f'attachment; filename="{invoice_uuid}-qr.png"'),
-                    ])
-            return Response(f"QR not available: {resp.status_code}", status=404)
-        except Exception as e:
-            return Response(str(e), status=500)
+        return self._proxy(invoice_uuid, 'qr', 'image/png',
+                           lambda inv: f"{invoice_uuid}-qr.png")
 
     @http.route(
         '/fawtara/invoice/<string:invoice_uuid>/pdf',
@@ -335,41 +348,15 @@ class ExcelTemplateController(http.Controller):
         methods=['GET'])
     def download_pdf(self, invoice_uuid, **kwargs):
         """Proxy PDF download from Spring Boot."""
-        config = request.env['ir.config_parameter'].sudo()
+        return self._proxy(invoice_uuid, 'pdf', 'application/pdf',
+                           lambda inv: f"invoice-{inv.invoice_number or invoice_uuid}.pdf")
 
-        inv = request.env['fawtara.portal.invoice'].sudo().search(
-            [('invoice_uuid', '=', invoice_uuid)], limit=1)
-
-        if not inv:
-            return Response("Invoice not found", status=404)
-
-        if inv.environment == 'SANDBOX':
-            base_url = config.get_param(
-                'fawtara.sandbox_url', 'http://localhost:8081')
-            api_key = inv.client_id.sandbox_api_key
-        else:
-            base_url = config.get_param(
-                'fawtara.api_url', 'http://localhost:8081')
-            api_key = inv.client_id.production_api_key
-
-        try:
-            import requests as req_lib
-            resp = req_lib.get(
-                f"{base_url}/api/v1/invoice/{invoice_uuid}/pdf",
-                headers={'X-API-Key': api_key},
-                timeout=30)
-
-            if resp.status_code == 200:
-                number = inv.invoice_number or invoice_uuid
-                filename = f"invoice-{number}.pdf"
-                return request.make_response(
-                    resp.content,
-                    headers=[
-                        ('Content-Type', 'application/pdf'),
-                        ('Content-Disposition',
-                         f'attachment; filename="{filename}"'),
-                    ])
-            return Response(
-                f"PDF not available yet. Status: {resp.status_code}", status=404)
-        except Exception as e:
-            return Response(str(e), status=500)
+    @http.route(
+        '/fawtara/invoice/<string:invoice_uuid>/xml',
+        type='http',
+        auth='user',
+        methods=['GET'])
+    def download_xml(self, invoice_uuid, **kwargs):
+        """Proxy signed UBL XML download from Spring Boot."""
+        return self._proxy(invoice_uuid, 'xml', 'application/xml',
+                           lambda inv: f"invoice-{inv.invoice_number or invoice_uuid}.xml")

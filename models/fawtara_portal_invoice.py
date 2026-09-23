@@ -1,10 +1,23 @@
-import requests
 import logging
+
+import psycopg2
+import requests
 from datetime import date
 from odoo import models, fields, api
 from odoo.exceptions import UserError, ValidationError
 
 _logger = logging.getLogger(__name__)
+
+
+def portal_state_for(fawtara_status):
+    """Spring Boot status → portal submission state (None if unknown/empty)."""
+    if not fawtara_status:
+        return None
+    if fawtara_status in ('QUEUED', 'PROCESSING'):
+        return 'queued'
+    if fawtara_status == 'CLEARED':
+        return 'cleared'
+    return 'failed'   # FAILED, OTA_FAILED, SCHEMATRON_FAILED, REJECTED, ...
 
 
 class PortalInvoice(models.Model):
@@ -28,7 +41,11 @@ class PortalInvoice(models.Model):
         'fawtara.client',
         string='Client',
         required=True,
+        index=True,
         default=lambda self: self._default_client())
+    company_id = fields.Many2one(
+        'res.company', string='Company',
+        related='client_id.company_id', store=True, index=True)
 
     environment = fields.Selection([
         ('PRODUCTION', '🔴 Production'),
@@ -87,10 +104,12 @@ class PortalInvoice(models.Model):
     # ── Seller ────────────────────────────────────────────────────
     seller_name = fields.Char(
         string='Seller Name', required=True,
-        compute='_compute_seller', store=True, readonly=False)
+        compute='_compute_seller', store=True, readonly=False,
+        precompute=True)
     seller_vatin = fields.Char(
         string='Seller VATIN', required=True,
-        compute='_compute_seller', store=True, readonly=False)
+        compute='_compute_seller', store=True, readonly=False,
+        precompute=True)
     seller_address_line1 = fields.Char(
         string='Address Line 1', required=True)
     seller_address_line2 = fields.Char(string='Address Line 2')
@@ -175,9 +194,8 @@ class PortalInvoice(models.Model):
     # ── Defaults & Computes ───────────────────────────────────────
 
     def _default_client(self):
-        clients = self.env['fawtara.client'].sudo().search(
-            [('status', '=', 'ACTIVE')])
-        return clients[0] if len(clients) == 1 else False
+        # The client linked to the company the user is working in
+        return self.env['fawtara.client']._get_current_client()
 
     @api.depends('invoice_number')
     def _compute_name(self):
@@ -191,15 +209,7 @@ class PortalInvoice(models.Model):
                 rec.qr_image_base64 = False
                 continue
             try:
-                config = self.env['ir.config_parameter'].sudo()
-                if rec.environment == 'SANDBOX':
-                    base_url = config.get_param(
-                        'fawtara.sandbox_url', 'http://localhost:8081')
-                    api_key = rec.client_id.sandbox_api_key
-                else:
-                    base_url = config.get_param(
-                        'fawtara.api_url', 'http://localhost:8081')
-                    api_key = rec.client_id.production_api_key
+                base_url, api_key = rec._api_target()
 
                 import requests as req_lib
                 import base64
@@ -244,9 +254,9 @@ class PortalInvoice(models.Model):
             if not rec.client_id:
                 rec.api_key = False
             elif rec.environment == 'SANDBOX':
-                rec.api_key = rec.client_id.sandbox_api_key
+                rec.api_key = rec.client_id.sudo().sandbox_api_key
             else:
-                rec.api_key = rec.client_id.production_api_key
+                rec.api_key = rec.client_id.sudo().production_api_key
 
     @api.depends('line_ids.line_total', 'line_ids.vat_amount')
     def _compute_totals(self):
@@ -351,7 +361,10 @@ class PortalInvoice(models.Model):
             # Preceding invoice — links back to original
             'preceding_invoice_number': self.invoice_number,
             'preceding_invoice_date': self.issue_date,
-            'preceding_invoice_uuid': self.invoice_uuid,
+            # Must be the original's UUIDv5 (OTA rule), not the v4 transport UUID
+            'preceding_invoice_uuid': self.env['fawtara.invoice'].sudo().search(
+                [('invoice_uuid', '=', self.invoice_uuid)], limit=1
+            ).invoice_uuid_v5 or self.invoice_uuid,
             'credit_note_reason': 'OTHER',
             # Reversal link
             'reversed_invoice_id': self.id,
@@ -387,28 +400,27 @@ class PortalInvoice(models.Model):
 
     # ── Submit Action ─────────────────────────────────────────────
 
+    def _api_target(self):
+        """(base_url, api_key) for this submission's environment."""
+        self.ensure_one()
+        config = self.env['ir.config_parameter'].sudo()
+        client = self.client_id.sudo()
+        if self.environment == 'SANDBOX':
+            return (config.get_param('fawtara.sandbox_url', 'http://localhost:8081'),
+                    client.sandbox_api_key)
+        return (config.get_param('fawtara.api_url', 'http://localhost:8081'),
+                client.production_api_key)
+
     def action_submit(self):
         self.ensure_one()
 
         if not self.line_ids:
             raise UserError('Add at least one invoice line before submitting.')
 
-        config = self.env['ir.config_parameter'].sudo()
-
-        if self.environment == 'SANDBOX':
-            base_url = config.get_param(
-                'fawtara.sandbox_url', 'http://localhost:8081')
-            api_key = self.client_id.sandbox_api_key
-            if not api_key:
-                raise UserError(
-                    'No sandbox API key configured for this client.')
-        else:
-            base_url = config.get_param(
-                'fawtara.api_url', 'http://localhost:8081')
-            api_key = self.client_id.production_api_key
-            if not api_key:
-                raise UserError(
-                    'No production API key configured for this client.')
+        base_url, api_key = self._api_target()
+        if not api_key:
+            raise UserError(
+                f'No {self.environment.lower()} API key configured for this client.')
 
         payload = self._build_payload()
 
@@ -418,6 +430,7 @@ class PortalInvoice(models.Model):
                 headers={
                     'X-API-Key': api_key,
                     'Content-Type': 'application/json',
+                    'X-Fawtara-Source': 'PORTAL',
                 },
                 json=payload,
                 timeout=30)
@@ -488,15 +501,7 @@ class PortalInvoice(models.Model):
         if not self.invoice_uuid:
             raise UserError('Invoice not yet submitted.')
 
-        config = self.env['ir.config_parameter'].sudo()
-        if self.environment == 'SANDBOX':
-            base_url = config.get_param(
-                'fawtara.sandbox_url', 'http://localhost:8081')
-            api_key = self.client_id.sandbox_api_key
-        else:
-            base_url = config.get_param(
-                'fawtara.api_url', 'http://localhost:8081')
-            api_key = self.client_id.production_api_key
+        base_url, api_key = self._api_target()
 
         try:
             resp = requests.get(
@@ -506,15 +511,8 @@ class PortalInvoice(models.Model):
 
             if resp.status_code == 200:
                 data = resp.json()
-                status_map = {
-                    'QUEUED': 'queued',
-                    'PROCESSING': 'queued',
-                    'CLEARED': 'cleared',
-                    'FAILED': 'failed',
-                }
                 old_state = self.state
-                new_state = status_map.get(
-                    data.get('status', ''), self.state)
+                new_state = portal_state_for(data.get('status')) or self.state
                 error = data.get('errorDetail')
 
                 self.write({
@@ -615,24 +613,33 @@ class PortalInvoice(models.Model):
         return payload
 
     def _create_admin_record(self, api_response):
-        self.env['fawtara.invoice'].sudo().create({
-            'invoice_uuid': api_response.get('invoiceUuid'),
-            'invoice_number': self.invoice_number,
-            'client_id': self.client_id.client_id,
-            'invoice_type_code': self.invoice_type_code,
-            'transaction_type': self.transaction_type,
-            'seller_vatin': self.seller_vatin,
-            'seller_name': self.seller_name,
-            'buyer_vatin': self.buyer_vatin,
-            'buyer_name': self.buyer_name,
-            'issue_date': self.issue_date,
-            'currency_code': self.currency_code,
-            'total_excl_tax': self.total_excl_tax,
-            'total_tax': self.total_tax,
-            'total_incl_tax': self.total_incl_tax,
+        """Register the submission in the canonical fawtara.invoice ledger.
+
+        Spring Boot's webhook will usually create the same record a moment
+        later (or even first) — upsert_from_fawtara is idempotent on the UUID,
+        so whichever arrives second just updates it.
+        """
+        payload = self._build_payload()
+        payload.update({
+            'invoiceUuid': api_response.get('invoiceUuid'),
+            'clientId': self.client_id.sudo().client_id,
+            'environment': self.environment,
+            'source': 'PORTAL',
             'status': 'QUEUED',
-            'created_at': fields.Datetime.now(),
+            'totalAmountWithoutTax': self.total_excl_tax,
+            'totalTaxAmount': self.total_tax,
+            'totalAmountWithTax': self.total_incl_tax,
+            'createdAt': fields.Datetime.to_string(fields.Datetime.now()),
         })
+        payload.pop('lines', None)   # Spring Boot's webhook sends the computed lines
+        try:
+            with self.env.cr.savepoint():
+                self.env['fawtara.invoice'].sudo().upsert_from_fawtara(payload)
+        except psycopg2.IntegrityError:
+            # Spring Boot's webhook created the same UUID in a parallel
+            # transaction a split second earlier — that record wins.
+            _logger.info('Ledger record for %s already created by webhook',
+                         payload.get('invoiceUuid'))
 
 
 class PortalInvoiceLine(models.Model):

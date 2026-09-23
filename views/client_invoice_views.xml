@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Client-side extras on the invoice ledger form (downloads, reversal) -->
+    <record id="view_fawtara_invoice_form_portal" model="ir.ui.view">
+        <field name="name">fawtara.invoice.form.portal</field>
+        <field name="model">fawtara.invoice</field>
+        <field name="inherit_id" ref="fawtara_admin.view_fawtara_invoice_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header/field[@name='status']" position="before">
+                <button name="action_create_credit_note"
+                        string="Reverse (Credit Note)"
+                        type="object" class="btn-warning"
+                        invisible="status != 'CLEARED' or invoice_type_code in ('381', '261')"/>
+            </xpath>
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_download_pdf" type="object"
+                        class="oe_stat_button" icon="fa-file-pdf-o"
+                        invisible="status != 'CLEARED'">
+                    <div class="o_stat_info"><span class="o_stat_text">PDF</span></div>
+                </button>
+                <button name="action_download_qr" type="object"
+                        class="oe_stat_button" icon="fa-qrcode"
+                        invisible="status != 'CLEARED'">
+                    <div class="o_stat_info"><span class="o_stat_text">QR</span></div>
+                </button>
+                <button name="action_view_reversals" type="object"
+                        class="oe_stat_button" icon="fa-undo"
+                        invisible="reversal_count == 0">
+                    <field name="reversal_count" widget="statinfo" string="Credit Notes"/>
+                </button>
+                <button name="action_open_portal_invoice" type="object"
+                        class="oe_stat_button" icon="fa-pencil-square-o"
+                        invisible="not portal_invoice_id">
+                    <div class="o_stat_info"><span class="o_stat_text">Submission</span></div>
+                </button>
+                <field name="portal_invoice_id" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Client: every invoice of the current company, all channels -->
+    <record id="action_client_invoices" model="ir.actions.act_window">
+        <field name="name">Invoices</field>
+        <field name="res_model">fawtara.invoice</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="fawtara_admin.view_fawtara_invoice_search"/>
+        <field name="context">{'search_default_production': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No invoices yet</p>
+            <p>Invoices appear here as soon as Fawtara receives them — from your ERP
+               through the API, from the portal form, or from an Excel upload.</p>
+        </field>
+    </record>
+
+    <record id="action_download_template_url" model="ir.actions.act_url">
+        <field name="name">Download Excel Template</field>
+        <field name="url">/fawtara/download/invoice-template</field>
+        <field name="target">self</field>
+    </record>
+
+</odoo>

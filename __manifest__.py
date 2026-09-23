@@ -1,13 +1,15 @@
 {
     'name': 'Fawtara Client Portal',
-    'version': '1.0.0',
+    'version': '19.0.1.1.0',
     'summary': 'Client-facing portal for invoice submission and tracking',
     'author': 'Baramej Business and Digital Technology Center LLC',
     'category': 'Accounting',
     'depends': ['base', 'mail', 'fawtara_admin'],
     'data': [
+        'security/fawtara_portal_security.xml',
         'security/ir.model.access.csv',
         'views/portal_invoice_views.xml',
+        'views/client_invoice_views.xml',
         'views/client_dashboard_views.xml',
         'views/excel_wizard_views.xml',
         'views/menu_views.xml',
@@ -20,6 +22,6 @@
         ],
     },
     'installable': True,
-    'application': False,
+    'application': True,
     'license': 'LGPL-3',
 }

@@ -15,7 +15,8 @@ class ExcelUploadWizard(models.TransientModel):
     client_id = fields.Many2one(
         'fawtara.client',
         string='Client', required=True,
-        domain="[('status','=','ACTIVE')]")
+        domain="[('status','=','ACTIVE')]",
+        default=lambda self: self.env['fawtara.client']._get_current_client())
     excel_file = fields.Binary(
         string='Excel File', required=True)
     excel_filename = fields.Char(string='File Name')
@@ -71,18 +72,19 @@ class ExcelUploadWizard(models.TransientModel):
             raise UserError(
                 f"No valid invoices found.\n" + "\n".join(errors))
 
-        # Choose API key
+        # Choose API key + endpoint for the environment
+        config = self.env['ir.config_parameter'].sudo()
+        client = self.client_id.sudo()
         if self.environment == 'SANDBOX':
-            api_key = self.client_id.sandbox_api_key
+            api_key = client.sandbox_api_key
+            base_url = config.get_param('fawtara.sandbox_url', 'http://localhost:8081')
         else:
-            api_key = self.client_id.production_api_key
+            api_key = client.production_api_key
+            base_url = config.get_param('fawtara.api_url', 'http://localhost:8081')
 
         if not api_key:
             raise UserError(
                 f"No {self.environment} API key for this client.")
-
-        config = self.env['ir.config_parameter'].sudo()
-        base_url = config.get_param('fawtara.api_url', 'http://localhost:8081')
 
         # Submit batch
         try:
@@ -91,6 +93,7 @@ class ExcelUploadWizard(models.TransientModel):
                 headers={
                     'X-API-Key': api_key,
                     'Content-Type': 'application/json',
+                    'X-Fawtara-Source': 'EXCEL',
                 },
                 json={
                     'batchReference': self.excel_filename or 'excel-upload',

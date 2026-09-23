@@ -148,7 +148,7 @@
         </div>
         <div class="col-xl-2 col-lg-4 col-md-6">
           <div class="fwt-cd-kpi fwt-cd-kpi-emerald"
-               t-on-click="() => this.openInvoices([['state','=','cleared']])">
+               t-on-click="() => this.openInvoices([['status_group','=','cleared']])">
             <div class="fwt-cd-kpi-icon">
               <i class="fa fa-check-circle"/>
             </div>
@@ -160,7 +160,7 @@
         </div>
         <div class="col-xl-2 col-lg-4 col-md-6">
           <div class="fwt-cd-kpi fwt-cd-kpi-rose"
-               t-on-click="() => this.openInvoices([['state','=','failed']])">
+               t-on-click="() => this.openInvoices([['status_group','=','failed']])">
             <div class="fwt-cd-kpi-icon">
               <i class="fa fa-times-circle"/>
             </div>
@@ -172,7 +172,7 @@
         </div>
         <div class="col-xl-2 col-lg-4 col-md-6">
           <div class="fwt-cd-kpi fwt-cd-kpi-amber"
-               t-on-click="() => this.openInvoices([['state','=','queued']])">
+               t-on-click="() => this.openInvoices([['status_group','in',['queued','processing']]])">
             <div class="fwt-cd-kpi-icon">
               <i class="fa fa-clock-o"/>
             </div>
