@@ -20,11 +20,10 @@ class ExcelTemplateController(http.Controller):
             from openpyxl.styles import (
                 PatternFill, Font, Alignment, Border, Side
             )
-            from openpyxl.data_validation import DataValidation
-        except ImportError:
-            return Response(
-                "openpyxl not installed. Run: pip install openpyxl",
-                status=500)
+            from openpyxl.worksheet.datavalidation import DataValidation
+        except ImportError as e:
+            _logger.exception("Excel template: import failed")
+            return Response(f"Excel library error: {e}", status=500)
 
         wb = openpyxl.Workbook()
 
